@@ -1,0 +1,8 @@
+{
+  "name": "KwikOrder Analytics",
+  "description": "KwikOrder Analytics Stage 1 - Database Connection and Explorer for IdealPOS",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
