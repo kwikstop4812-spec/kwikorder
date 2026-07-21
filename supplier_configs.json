@@ -1,0 +1,37 @@
+{
+  "7": {
+    "schedules": [
+      {
+        "cutOffDay": "Tuesday",
+        "cutOffTime": "10:00",
+        "deliveryDay": "Wednesday"
+      },
+      {
+        "cutOffDay": "Thursday",
+        "cutOffTime": "10:00",
+        "deliveryDay": "Friday"
+      },
+      {
+        "cutOffDay": "Friday",
+        "cutOffTime": "10:00",
+        "deliveryDay": "Monday"
+      }
+    ],
+    "safetyMultiplier": 1.2
+  },
+  "8": {
+    "schedules": [
+      {
+        "cutOffDay": "Thursday",
+        "cutOffTime": "10:00",
+        "deliveryDay": "Friday"
+      },
+      {
+        "cutOffDay": "Monday",
+        "cutOffTime": "10:00",
+        "deliveryDay": "Tuesday"
+      }
+    ],
+    "safetyMultiplier": 1.2
+  }
+}

@@ -1,0 +1,25 @@
+# KwikOrder Analytics - Cursor AI Rules & Instructions
+
+You are acting as the AI developer for **KwikOrder Analytics**, assisting the user locally on their Shop PC.
+
+## 🛠️ Project Stack & Configuration
+- **Frontend:** React 19, Tailwind CSS v4, Lucide Icons, and Motion.
+- **Backend:** Node.js, Express, and `mssql` (tedious driver) connecting to a local SQL Server.
+- **Entry points:**
+  - `server.ts` handles Express backend APIs and serves Vite static assets.
+  - `src/App.tsx` handles client-side tab navigation.
+- **Scripts:**
+  - Run with `npm run dev` (starts the full-stack development app on port `3000`).
+  - Build with `npm run build`.
+
+## 🖥️ Local SQL Server Environment
+- **Host computer name:** `DESKTOP-ABEN9NK`
+- **Instance Name:** `IDEALSQL` (SQL Server 2019 Express Edition)
+- **Database Name:** `IdealPOS`
+- **Install Directory:** `C:\Program Files\Microsoft SQL Server\MSSQL15.IDEALSQL\MSSQL`
+
+## 📋 Best Practices
+1. **Explain local database connection setup patiently:** SQL Server Express does not enable TCP/IP by default. Guide the user to enable TCP/IP via **SQL Server Configuration Manager** and allow Mixed Mode Authentication (SQL Server and Windows Authentication).
+2. **Help creating SQL logins:** Recommend creating a dedicated SQL database login (e.g., username: `kwikorder`, password: `your_password`) with `db_datareader` permissions to keep connection strings secure and straightforward in Node.js.
+3. **Incremental Implementation:** Follow the Development Stages defined in `CURSOR_INSTRUCTIONS.md`. Stage 1 and 2 are scaffolded; move step-by-step into Stage 3 (Schema Mapping) and Stage 4/5 (Ordering Logic & PDF/Excel Export).
+4. **Clean Code:** Use Tailwind CSS for visual adjustments, functional React components, and keep types maintained in `/src/types.ts`.
