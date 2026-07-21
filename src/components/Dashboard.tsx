@@ -76,7 +76,7 @@ export default function Dashboard({ status, stats }: DashboardProps) {
         <div className="bg-white p-12 rounded-xl shadow-sm border border-gray-100 text-center">
           <Database className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900">Waiting for Connection</h3>
-          <p className="text-gray-500 mt-2 max-w-md mx-auto">Go to the Server Settings tab to configure your connection to the IdealPOS SQL Server database.</p>
+          <p className="text-gray-500 mt-2 max-w-md mx-auto">Go to the Server Settings tab to connect to the IdealPOS SQL instance (<span className="font-mono text-sm">IPSTransaction</span>).</p>
         </div>
       )}
     </div>
