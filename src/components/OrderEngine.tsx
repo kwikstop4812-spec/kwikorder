@@ -32,7 +32,7 @@ import {
   normalizeSupplierConfigMap,
   pickNextScheduleIndex,
 } from '../supplierConfigUtils';
-import { compareByPackSize, formatPackSizeLabel } from '../productUtils';
+import { compareByPackSize, formatPackSizeLabel, readFileAsDataUrl } from '../productUtils';
 
 type EditableRow = OrderRecommendation & { orderQty: number };
 type ProductViewMode = 'list' | 'thumbnail';
