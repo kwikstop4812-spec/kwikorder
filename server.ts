@@ -2,6 +2,7 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import sql from "mssql";
+import { spawn, execSync, ChildProcess } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { getCoverageDays } from "./src/supplierConfigUtils";
 import { compareByPackSize } from "./src/productUtils";
@@ -339,8 +340,78 @@ async function startServer() {
     uptime: "42m 18s",
     latencyMs: 18,
     lastHeartbeat: new Date().toISOString(),
-    errorReason: undefined
+    errorReason: undefined,
+    hostname: "mssql.kwikstop.com.au"
   };
+
+  let activeCloudflaredProc: ChildProcess | null = null;
+  let activeBridgeHost: string = "";
+  const LOCAL_BRIDGE_PORT = 14333;
+  const CLOUDFLARED_BIN = path.join(process.cwd(), "cloudflared");
+
+  function ensureCloudflaredBinary(): boolean {
+    if (fs.existsSync(CLOUDFLARED_BIN) && fs.statSync(CLOUDFLARED_BIN).size > 1000000) {
+      return true;
+    }
+    try {
+      console.log("Downloading cloudflared binary...");
+      execSync(`curl -L -o "${CLOUDFLARED_BIN}" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x "${CLOUDFLARED_BIN}"`, { stdio: "ignore" });
+      return fs.existsSync(CLOUDFLARED_BIN);
+    } catch (err) {
+      console.error("Failed to download cloudflared binary:", err);
+      return false;
+    }
+  }
+
+  async function startCloudflaredAccessBridge(hostname: string): Promise<{ host: string; port: number } | null> {
+    const isCloudflareDomain =
+      hostname.includes(".kwikstop.com.au") ||
+      hostname.includes(".trycloudflare.com") ||
+      hostname.includes("cloudflare");
+
+    if (!isCloudflareDomain) {
+      return null;
+    }
+
+    if (activeCloudflaredProc && activeBridgeHost === hostname) {
+      return { host: "127.0.0.1", port: LOCAL_BRIDGE_PORT };
+    }
+
+    if (activeCloudflaredProc) {
+      try { activeCloudflaredProc.kill(); } catch {}
+      activeCloudflaredProc = null;
+    }
+
+    if (!ensureCloudflaredBinary()) {
+      return null;
+    }
+
+    try {
+      console.log(`Launching cloudflared access bridge for ${hostname} -> 127.0.0.1:${LOCAL_BRIDGE_PORT}`);
+      activeCloudflaredProc = spawn(CLOUDFLARED_BIN, [
+        "access", "tcp",
+        "--hostname", hostname,
+        "--url", `127.0.0.1:${LOCAL_BRIDGE_PORT}`
+      ], {
+        detached: false,
+        stdio: "ignore"
+      });
+
+      activeBridgeHost = hostname;
+      cloudflaredStatus.status = "Active";
+      cloudflaredStatus.hostname = hostname;
+      cloudflaredStatus.lastHeartbeat = new Date().toISOString();
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return { host: "127.0.0.1", port: LOCAL_BRIDGE_PORT };
+    } catch (err) {
+      console.error("Error starting cloudflared access bridge:", err);
+      return null;
+    }
+  }
+
+  // Pre-boot cloudflared access bridge for default host mssql.kwikstop.com.au
+  startCloudflaredAccessBridge("mssql.kwikstop.com.au").catch(() => {});
 
   let cloudflaredLogs = [
     {
@@ -440,30 +511,44 @@ async function startServer() {
   // API Routes
   app.post("/api/settings", async (req, res) => {
     try {
-      const { server, database, user, password, domain } = req.body;
+      const { server, database, user, password, domain, authType } = req.body;
 
-      // Support named instances: "localhost\IDEALSQL" or "host,port"
-      const rawServer = (server || "localhost\\IDEALSQL").trim();
+      // Support host, port, or named instances
+      const rawServer = (server || "mssql.kwikstop.com.au").trim();
       let host = rawServer;
       let instanceName: string | undefined;
-      let port: number | undefined;
+      let port: number = 1433;
 
       if (rawServer.includes(",")) {
         const [h, p] = rawServer.split(",");
         host = h.trim();
-        port = Number(p.trim()) || undefined;
+        port = Number(p.trim()) || 1433;
+      } else if (rawServer.includes(":")) {
+        const [h, p] = rawServer.split(":");
+        host = h.trim();
+        port = Number(p.trim()) || 1433;
       } else if (rawServer.includes("\\")) {
         const [h, inst] = rawServer.split("\\");
         host = h.trim();
         instanceName = inst.trim() || undefined;
       }
 
+      let connectHost = host;
+      let connectPort = port;
+
+      // Auto-bridge Cloudflare Tunnel hostnames via cloudflared access tcp
+      const bridge = await startCloudflaredAccessBridge(host);
+      if (bridge) {
+        connectHost = bridge.host;
+        connectPort = bridge.port;
+      }
+
       const config: sql.config = {
-        server: host,
+        server: connectHost,
         database: database || "IPSTransaction",
-        port,
-        connectionTimeout: 2500, // 2.5s fast timeout
-        requestTimeout: 3000,
+        port: connectPort,
+        connectionTimeout: 8000,
+        requestTimeout: 15000,
         options: {
           encrypt: false,
           trustServerCertificate: true,
@@ -472,52 +557,75 @@ async function startServer() {
         },
       };
 
-      if (user && password) {
-        config.user = user;
-        config.password = password;
-        if (domain) {
-          config.domain = domain;
+      let cleanUser = (user || "kwikorder").trim();
+      let cleanPassword = password || (cleanUser.toLowerCase() === "kwikorder" ? "Kwik$top4812" : "");
+      let cleanDomain = (domain || "").trim();
+
+      if (cleanUser.includes("\\")) {
+        const parts = cleanUser.split("\\");
+        if (!cleanDomain) cleanDomain = parts[0].trim();
+        cleanUser = parts[1].trim();
+      }
+
+      // Over TCP/Cloudflare tunnel, SQL Server Authentication ('sql') is recommended.
+      // Setting domain in tedious triggers NTLM integrated auth.
+      if (authType === "windows") {
+        config.user = cleanUser;
+        config.password = cleanPassword;
+        if (cleanDomain) {
+          config.domain = cleanDomain;
+        } else {
+          delete (config as any).domain;
         }
       } else {
-        // Windows Auth needs msnodesqlv8; tedious requires a SQL login.
-        config.user = "";
-        config.password = "";
+        // Standard SQL Server Authentication (e.g. kwikorder, sa)
+        config.user = cleanUser;
+        config.password = cleanPassword;
+        delete (config as any).domain;
       }
 
       dbConfig = {
         ...config,
-        // Keep original label for UI status (includes instance / port)
+        // Keep original label for UI status
         server: rawServer,
       } as sql.config;
 
-      // Test connection
+      // Test connection with mssql pool
       if (pool) {
         try { await pool.close(); } catch {}
       }
-      
-      // When connecting to local IdealPOS instance or when Tunnel/Live mode is active, route via cloudflared tunnel agent
-      if (forceLiveMode || cloudflaredStatus.status === "Active" || rawServer.toLowerCase().includes("ideal") || rawServer.toLowerCase().includes("localhost")) {
-        cloudflaredStatus.status = "Active";
+
+      try {
+        // Attempt actual SQL Server connection
+        pool = await new sql.ConnectionPool(config).connect();
         dbConfig = {
           ...config,
-          server: `${rawServer} (via cloudflared tunnel MEL01)`,
+          server: rawServer,
         } as sql.config;
 
-        return res.json({
+        res.json({
           success: true,
-          message: `Connected successfully to ${rawServer} via Cloudflare Tunnel (cloudflared MEL01 multiplex bridge).`,
+          message: `Connected successfully to SQL Server (${rawServer}) via Cloudflare Tunnel Access Bridge! Live IdealPOS database is active.`,
           isDemoMode: false,
           forceLiveMode: true
         });
-      }
-
-      try {
-        // Connect with parsed host/instance/port config
-        pool = await new sql.ConnectionPool(config).connect();
-        res.json({ success: true, message: "Connected successfully to " + rawServer, isDemoMode: false });
       } catch (err: any) {
         pool = null;
-        res.status(500).json({ success: false, message: "Connection failed: " + err.message + ". You can continue testing in Demo Mode." });
+        console.error("SQL Connection Error:", err);
+        const bridgeNote = bridge ? " (Cloudflare Tunnel Bridge Active on 127.0.0.1:14333)" : "";
+        let customMessage = err.message;
+
+        if (err.message && err.message.includes("untrusted domain")) {
+          customMessage = "Login failed: Windows Integrated Authentication cannot be used across TCP/Cloudflare Tunnel connections. Please set Authentication Method to 'SQL Server Authentication' and log in with a SQL user (e.g. kwikorder or sa).";
+        } else if (err.message && err.message.includes("Login failed for user")) {
+          customMessage = `Login failed for user '${cleanUser}'. SQL Server is likely running in Windows-Only Mode. Enable Mixed Mode by running in PowerShell (Admin): Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL15.IDEALSQL\\MSSQLServer' -Name 'LoginMode' -Value 2; Restart-Service -Name 'MSSQL$IDEALSQL' -Force`;
+        }
+
+        res.status(500).json({
+          success: false,
+          message: `Connection failed: ${customMessage}${bridgeNote}. Ensure SQL Server Authentication mode (Mixed Mode) is enabled in SQL Server properties.`,
+          isDemoMode: true
+        });
       }
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });

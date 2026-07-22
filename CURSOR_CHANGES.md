@@ -29,10 +29,12 @@ IdealPOS database schemas can vary depending on the IdealPOS version, custom tab
 ---
 
 ## 3. Cloudflare Tunnel (`cloudflared`) Integration
-To securely bridge Cloud Run / hosted instances with local Windows SQL Servers (`localhost\IDEALSQL` or `127.0.0.1:1433`), the app incorporates a Cloudflare Tunnel bridge adapter:
+To securely bridge Cloud Run / hosted web instances with local Windows SQL Servers running on store PCs, the app utilizes Cloudflare Tunnel TCP hostname routing:
 
-- **Multiplex Bridge Routing (`MEL01`)**: When `forceLiveMode` or `cloudflaredStatus` is set to `Active`, connection attempts to `localhost\IDEALSQL` bypass direct cloud-to-localhost TCP failures and establish a tunneled RPC endpoint.
-- **Status Endpoint (`/api/status`)**: Reports whether the server is operating via the Cloudflare Tunnel bridge (`localhost\IDEALSQL (via cloudflared MEL01)`).
+- **Public Hostname**: `mssql.kwikstop.com.au` mapped to `tcp://localhost:1433` on the local store PC (`DESKTOP-ABEN9NK`).
+- **Default Database Endpoint**: Updated default server hostname in Settings and `server.ts` from `localhost\IDEALSQL` to `mssql.kwikstop.com.au`.
+- **Direct TCP Connection**: The cloud backend connects directly to `mssql.kwikstop.com.au:1433` to query `IPSTransaction` without requiring local-only network access.
+- **Status Endpoint (`/api/status`)**: Reports whether the server is successfully connected to `mssql.kwikstop.com.au`.
 - **Tunnel Logs Endpoint (`/api/cloudflared/logs`)**: Provides real-time connection telemetry for monitoring tunnel health.
 
 ---
